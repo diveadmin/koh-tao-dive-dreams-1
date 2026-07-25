@@ -86,7 +86,7 @@ const Footer: React.FC = () => {
       <div className="max-w-7xl mx-auto px-4 py-12">
         {/* ...existing code for links and sections... */}
         <div className="border-t border-[#1a3a5c] pt-6 text-center text-xs text-gray-500">
-          {footerContent.footer_line_1 || `© ${new Date().getFullYear()} Pro Diving Asia — All rights reserved | Powered By One Media Asia Co, Ltd`}
+          {footerContent.footer_line_1 || `© ${new Date().getFullYear()} Just Pro Diving Asia — All rights reserved | Powered By One Media Asia Co, Ltd`}
           <br />
           {footerContent.footer_line_2 && <span>{footerContent.footer_line_2}</span>}
         </div>
