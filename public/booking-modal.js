@@ -33,6 +33,8 @@ document.addEventListener('DOMContentLoaded', function () {
   form.setAttribute('autocomplete', 'on');
   form.innerHTML = '';
   form.innerHTML += '<input type="hidden" name="access_key" value="e4c4edf6-6e35-456a-87da-b32b961b449a">';
+  // Add PayPal link hidden field (will be updated dynamically)
+  form.innerHTML += '<input type="hidden" name="paypal_link" id="paypal_link_field">';
   form.appendChild(courseSelect);
   form.appendChild(priceDisplay);
   form.appendChild(depositDisplay);
@@ -67,6 +69,11 @@ document.addEventListener('DOMContentLoaded', function () {
     priceDisplay.textContent = price ? `Course Price: ฿${price}` : '';
     depositDisplay.textContent = price ? `20% Deposit: ฿${Math.round(price * 0.2)}` : '';
     payNowBtn.disabled = !price;
+    // Update PayPal link hidden field
+    const paypalField = document.getElementById('paypal_link_field');
+    if (paypalField) {
+      paypalField.value = price ? `https://paypal.me/divinginasia/${Math.round(price * 0.2)}THB` : '';
+    }
   };
   payNowBtn.disabled = true;
 
@@ -107,8 +114,33 @@ document.addEventListener('DOMContentLoaded', function () {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(bookingData),
     });
-    // Let Web3Forms handle the actual form submit
-    setTimeout(() => { modal.style.display = 'none'; }, 1000);
+    // Show success message in modal instead of closing
+    setTimeout(() => {
+      // Get PayPal link value
+      const paypalField = document.getElementById('paypal_link_field');
+      const paypalLink = paypalField && paypalField.value ? paypalField.value : '';
+      form.innerHTML = '<div style="text-align:center;padding:2em 0;">'
+        + '<h2 style="color:#22c55e;font-size:2em;margin-bottom:0.5em;">Success!</h2>'
+        + '<p>Thank you! Your enquiry has been sent.<br>We will contact you soon.</p>'
+        + (paypalLink ? `<div style=\"margin:1.5em 0;\"><a href=\"${paypalLink}\" target=\"_blank\" style=\"display:inline-block;padding:0.75em 2em;background:#0070ba;color:#fff;border-radius:4px;font-size:1.1em;text-decoration:none;font-weight:bold;\">Pay Deposit via PayPal</a></div>` : '')
+        + '<div style="margin-top:2em;">'
+        + '<button id="booking-modal-close-success" style="margin-right:1em;padding:0.75em 2em;background:#0070ba;color:#fff;border:none;border-radius:4px;font-size:1em;cursor:pointer;">Close</button>'
+        + '<button id="booking-modal-go-home" style="padding:0.75em 2em;background:#22c55e;color:#fff;border:none;border-radius:4px;font-size:1em;cursor:pointer;">Go Home</button>'
+        + '</div>'
+        + '</div>';
+      const goHomeBtn = document.getElementById('booking-modal-go-home');
+      if (goHomeBtn) goHomeBtn.onclick = () => { window.location.href = '/'; };
+      const closeSuccessBtn = document.getElementById('booking-modal-close-success');
+      if (closeSuccessBtn) closeSuccessBtn.onclick = () => {
+        modal.style.display = 'none';
+        window.location.href = '/';
+      };
+      // Auto-redirect after 5 seconds
+      setTimeout(() => {
+        modal.style.display = 'none';
+        window.location.href = '/';
+      }, 5000);
+    }, 500);
   };
 
 });

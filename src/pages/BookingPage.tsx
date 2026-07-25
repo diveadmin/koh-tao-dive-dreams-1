@@ -4,7 +4,17 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Calendar, User, Mail, Phone, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -20,6 +30,7 @@ const bookingSchema = z.object({
   message: z.string().trim().max(1000).optional(),
   paymentChoice: z.enum(['now', 'link', 'none']).optional(),
 });
+
 
 type BookingFormData = z.infer<typeof bookingSchema>;
 
@@ -63,8 +74,7 @@ const ADDONS = [
 
 type BookingItemType = 'course' | 'dive' | 'stay';
 
-
-const BookingPage: React.FC = () => {
+const       BookingPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const apiBaseRaw = (import.meta.env.VITE_API_BASE_URL || '').trim();
@@ -77,19 +87,28 @@ const BookingPage: React.FC = () => {
   const apiUrl = (path: string) => `${apiBase}${path}`;
   const courseSlug = (searchParams.get('course') || '').trim();
   const fallbackCourse = courseSlug ? COURSE_FALLBACKS[courseSlug] : undefined;
+  // Always default to course booking if no context is present
   const hasDirectBookingContext = Boolean(
     searchParams.get('item') ||
     searchParams.get('type') ||
     searchParams.get('price') ||
     fallbackCourse
   );
-  const selectedBookingKind = (searchParams.get('bookingKind') || '').trim();
+  // bookingKind param or fallback to 'course' if no context
+  const selectedBookingKind = (searchParams.get('bookingKind') || (!hasDirectBookingContext ? 'course' : '')).trim();
   const bookingSource = (searchParams.get('source') || 'direct').trim();
   const rawType = (searchParams.get('type') || '').trim();
-  const genericType: BookingItemType = selectedBookingKind === 'course' ? 'course' : 'dive';
-  const itemType: BookingItemType = rawType === 'dive' || rawType === 'stay' || rawType === 'course'
-    ? rawType
-    : (hasDirectBookingContext ? 'course' : genericType);
+  // Determine itemType: explicit type param, or fallback to selectedBookingKind, or 'course'
+  let itemType: BookingItemType;
+  if (rawType === 'dive' || rawType === 'stay' || rawType === 'course') {
+    itemType = rawType as BookingItemType;
+  } else if (hasDirectBookingContext) {
+    itemType = 'course';
+  } else if (selectedBookingKind === 'dive') {
+    itemType = 'dive';
+  } else {
+    itemType = 'course';
+  }
   const itemTitle = searchParams.get('item') || fallbackCourse?.item || (itemType === 'course' ? 'Course Booking' : 'Fun Dive');
   const isDiveBooking = itemType === 'dive';
   const isCourseBooking = itemType === 'course';
@@ -139,26 +158,6 @@ const BookingPage: React.FC = () => {
     return availableAddons.reduce((sum, a) => sum + (selectedAddons[a.id] ? a.amount : 0), 0);
   }, [isDiveBooking, availableAddons, selectedAddons]);
 
-  // Add course and accommodation selection to form state
-  const [selectedCourse, setSelectedCourse] = useState<string>(courseSlug || 'open-water');
-  const [accommodationType, setAccommodationType] = useState<string>('basic');
-  const courseOptions = [
-    { value: 'open-water', label: 'PADI Open Water', price: 12000 },
-    { value: 'advanced-open-water', label: 'PADI Advanced Open Water', price: 11000 },
-    { value: 'rescue-diver', label: 'PADI Rescue Diver', price: 13000 },
-    { value: 'divemaster', label: 'PADI Divemaster', price: 35000 },
-    // ...add more as needed
-  ];
-  const accommodationOptions = [
-    { value: 'basic', label: 'Basic' },
-    { value: 'deluxe', label: 'Deluxe' },
-    { value: 'double', label: 'Double' },
-    { value: 'single', label: 'Single' },
-  ];
-  const selectedCourseObj = courseOptions.find(c => c.value === selectedCourse) || courseOptions[0];
-  const coursePrice = selectedCourseObj.price;
-  const deposit = Math.round(coursePrice * 0.2);
-
   const form = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
@@ -177,180 +176,156 @@ const BookingPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const onSubmit = async (data: BookingFormData) => {
+    // Customer submits booking, admin gets email, status is always 'pending' until admin acts
     setIsSubmitting(true);
     try {
-      const payload = {
-        access_key: import.meta.env.WEB3FORMS_ACCESS_KEY || import.meta.env.VITE_WEB3FORMS_ACCESS_KEY || '',
-        subject: 'New Booking/Enquiry',
-        from_name: data.name,
-        email: data.email,
-        message:
-          `Course: ${selectedCourse}\nAccommodation: ${accommodationType}\nExperience: ${data.experience_level}\nPayment: ${data.paymentChoice}\nPrice: ฿${coursePrice}\nDeposit: ฿${deposit}\nMessage: ${data.message}`,
-      };
-      const res = await fetch('https://api.web3forms.com/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const wfData = await res.json();
-      if (wfData.success) {
-        if (data.paymentChoice === 'now') {
-          window.open(`https://paypal.me/prodivingasia/${deposit}THB`, '_blank');
-          toast.success('Booking sent! Please complete your deposit via PayPal.');
-        } else {
-          toast.success('Enquiry sent! We will contact you soon.');
-        }
-        form.reset();
-      } else {
-        toast.error('Failed to send booking/enquiry. Please try again.');
-      }
-    } catch (err) {
-      toast.error('Submission failed. Please try again.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Rezdy prefill removed.
-
-  return (
-    <div className="min-h-screen bg-background py-16">
-      <div className="max-w-4xl mx-auto bg-background rounded-xl shadow-xl shadow-blue-900/20 p-8">
-        <div className="flex items-start justify-between gap-4">
-          <h1 className="text-2xl font-bold mb-2">Book a Course</h1>
-        </div>
-        <p className="text-sm text-muted-foreground mb-6">Select your course, accommodation, and enter your details to book.</p>
-
-        <div className="mb-6">
-          <label className="block font-medium mb-1">Course</label>
-          <Select value={selectedCourse} onValueChange={setSelectedCourse}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select course" />
-            </SelectTrigger>
-            <SelectContent>
-              {courseOptions.map((c) => (
-                <SelectItem key={c.value} value={c.value}>{c.label} (฿{c.price})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="mb-6">
-          <label className="block font-medium mb-1">Accommodation</label>
-          <Select value={accommodationType} onValueChange={setAccommodationType}>
-            <SelectTrigger>
-              <SelectValue placeholder="Select accommodation" />
-            </SelectTrigger>
-            <SelectContent>
-              {accommodationOptions.map((a) => (
-                <SelectItem key={a.value} value={a.value}>{a.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="mb-6">
-          <div className="text-lg font-semibold">Course price: <span className="font-bold">฿{coursePrice}</span></div>
-          <div className="text-md text-muted-foreground mt-1">Deposit payable now (20%): <span className="font-bold">฿{deposit}</span></div>
-        </div>
-
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Your name" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Email</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Your email" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="experience_level"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Have you dived before?</FormLabel>
-                  <FormControl>
-                    <Select
-                      value={field.value || ''}
-                      onValueChange={field.onChange}
-                    >
+      const amountMajor = (isStayBooking ? 0 : depositMajor) + totalAddons;
+      const selectedAddonsList = isDiveBooking
+        ? availableAddons.filter((addon) => selectedAddons[addon.id]).map((addon) => ({
+            id: addon.id,
+            label: addon.label,
+            amount: addon.amount,
+          }))
+        : [];
+                  <Select>
+                    <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select experience" />
+                        <SelectValue placeholder="Select your experience level" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="never">Never dived before</SelectItem>
-                        <SelectItem value="try-dive">Tried diving once</SelectItem>
-                        <SelectItem value="certified">Certified diver</SelectItem>
-                        <SelectItem value="advanced">Advanced/Rescue/Pro</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">No diving experience</SelectItem>
+                      <SelectItem value="beginner">Beginner (1-10 dives)</SelectItem>
+                      <SelectItem value="intermediate">Intermediate (10-50 dives)</SelectItem>
+                      <SelectItem value="advanced">Advanced (50+ dives)</SelectItem>
+                      <SelectItem value="professional">Professional diver</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="message"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Message</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="Anything else we should know?" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={form.control}
-              name="paymentChoice"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Payment Option</FormLabel>
-                  <FormControl>
-                    <Select
-                      value={field.value || ''}
-                      onValueChange={field.onChange}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose payment option" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="now">Pay deposit now with PayPal</SelectItem>
-                        <SelectItem value="none">Just send enquiry (no payment now)</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <Button type="submit" disabled={isSubmitting} className="w-full mt-4">
-              Book Now
-            </Button>
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="message" render={({ field }) => (
+              <FormItem>
+                <FormLabel className="flex items-center gap-2"><MessageSquare className="h-4 w-4" /> Message</FormLabel>
+                <FormControl><Textarea placeholder="Any special requests or questions?" rows={3} {...field} /></FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="paymentChoice" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Payment Method</FormLabel>
+                <FormControl>
+                  <div className="space-y-2">
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="payment-now"
+                        name="paymentChoice"
+                        value="now"
+                        checked={field.value === 'now'}
+                        onChange={() => field.onChange('now')}
+                      />
+                      <span>{isStayBooking ? 'Pay after confirmation' : 'Pay deposit now with PayPal'}</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="payment-none"
+                        name="paymentChoice"
+                        value="none"
+                        checked={field.value === 'none'}
+                        onChange={() => field.onChange('none')}
+                      />
+                      <span>{isStayBooking ? 'Send accommodation inquiry' : 'Pay later (inquire only)'}</span>
+                    </label>
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            <div className="flex gap-3 pt-4">
+              <Button type="button" variant="outline" onClick={() => navigate(-1)} className="flex-1">Cancel</Button>
+              <Button type="submit" disabled={isSubmitting} className="flex-1 bg-primary hover:bg-primary/90">
+                {isSubmitting ? 'Sending...' : 'Submit Inquiry'}
+              </Button>
+            </div>
           </form>
         </Form>
+
+        {showPaymentLinks && (
+          <div className="mt-8 p-6 border rounded-xl bg-muted/50 text-center space-y-4">
+            <h2 className="text-xl font-bold">Pay Your Deposit</h2>
+            <p className="text-muted-foreground">Your inquiry has been sent! To secure your booking, pay the deposit of <strong>฿{depositMajor + totalAddons}</strong> via PayPal:</p>
+            <div className="space-y-3">
+              <a
+                href={`${PAYPAL_LINK}/${depositMajor + totalAddons}THB`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                  <Button className="bg-[#0070ba] hover:bg-[#005ea6] text-white px-8 py-3 text-lg w-full">
+                    Pay ฿{depositMajor + totalAddons} (THB) with PayPal
+                  </Button>
+                  <p className="text-xs text-muted-foreground mt-1">Amount will be charged in Thai Baht (THB).</p>
+              </a>
+              <p className="text-sm text-muted-foreground">or</p>
+              <a
+                href={PAYPAL_LINK}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <Button variant="outline" className="px-8 py-3 text-lg w-full">
+                  Open PayPal.me/prodivingasia
+                </Button>
+              </a>
+            </div>
+            <p className="text-sm text-muted-foreground">Or <button className="underline" onClick={() => { 
+              form.reset(); 
+              setShowPaymentLinks(false); 
+              setShowSkipPaymentPopup(true); 
+            }}>skip payment for now</button></p>
+          </div>
+        )}
       </div>
+
+      <><AlertDialog open={showStayPopup} onOpenChange={setShowStayPopup}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{isCourseBooking ? 'Accommodation Included' : 'Accommodation Request Noted'}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {isCourseBooking
+                  ? 'Accommodation free with us for courses.'
+                  : 'Deposit payable now for your dives and accommodation total pricing to be confirmed. Please leave details in the form below and we will contact to confirm your total amount payable on arrival or deposit before arriving.'}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction>OK</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog><AlertDialog
+          open={showSkipPaymentPopup}
+          onOpenChange={(open) => {
+            setShowSkipPaymentPopup(open);
+            if (!open) {
+              form.reset();
+            }
+          } }
+        >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Inquiry Sent</AlertDialogTitle>
+                <AlertDialogDescription>{SKIP_PAYMENT_MESSAGE}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogAction onClick={() => {
+                  form.reset();
+                  setShowSkipPaymentPopup(false);
+                } }>OK</AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog></>
     </div>
   );
 };
